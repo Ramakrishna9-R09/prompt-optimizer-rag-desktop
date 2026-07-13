@@ -1,0 +1,32 @@
+# Dependencies and generated application bundles
+node_modules/
+dist/
+dist-advanced-rag-release/
+out/
+release/
+
+# Local application data, logs, and RAG indexes
+.prompt-optimizer/
+config.json
+memory-index.json
+pipeline-cache.json
+*.log
+
+# Credentials and certificates
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+
+# Test and editor artifacts
+coverage/
+.nyc_output/
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

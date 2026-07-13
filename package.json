@@ -1,0 +1,40 @@
+{
+  "name": "prompt-optimizer",
+  "version": "1.1.1",
+  "description": "AI Prompt Autopilot with local RAG, ranked suggestions, global shortcuts, and IDE handoff",
+  "main": "gui/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/*.test.js",
+    "smoke:rag": "node scripts/smoke-rag.js",
+    "build": "electron-builder --dir --config.win.signAndEditExecutable=false",
+    "build:win": "electron-builder --win --config.win.signAndEditExecutable=false"
+  },
+  "author": "Prompt Optimizer Team",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^43.1.0",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0"
+  },
+  "build": {
+    "appId": "com.promptoptimizer.desktop",
+    "productName": "Prompt Optimizer",
+    "directories": {
+      "output": "../dist-advanced-rag-release"
+    },
+    "files": [
+      "core/**/*",
+      "adapters/**/*",
+      "gui/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": "dir"
+    }
+  }
+}

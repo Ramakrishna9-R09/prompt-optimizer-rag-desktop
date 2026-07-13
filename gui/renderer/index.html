@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+  <title>Prompt Optimizer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <div class="titlebar">
+      <span class="title">Prompt Optimizer</span>
+      <div class="titlebar-btns">
+        <button id="btn-minimize" class="tb-btn" title="Minimize">&#8211;</button>
+        <button id="btn-close" class="tb-btn tb-close" title="Close">&#215;</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div id="view-main" class="view active">
+        <div class="status-bar">
+          <div class="status-dot" id="status-dot"></div>
+          <span id="status-text">Checking key...</span>
+        </div>
+
+        <div class="input-group">
+          <label>Prompt to Optimize</label>
+          <textarea id="input-prompt" rows="4" placeholder="Type or paste your prompt here..."></textarea>
+        </div>
+
+        <div class="input-group">
+          <label>Conversation Context</label>
+          <textarea id="input-context" rows="3" placeholder="Optional: paste recent chat history here. Ctrl+Alt+Space uses local memory RAG, current window chat text, project files, and current git changes."></textarea>
+        </div>
+
+        <div class="btn-row">
+          <button id="btn-optimize" class="btn primary">Optimize</button>
+          <button id="btn-suggest" class="btn accent">AI Suggestions</button>
+          <button id="btn-paste" class="btn secondary">From Clipboard</button>
+          <button id="btn-preview-context" class="btn secondary">Preview Context</button>
+        </div>
+
+        <div id="context-preview-box" class="result-box hidden">
+          <label>Context Preview</label>
+          <div class="result-content context-preview" id="context-preview-content"></div>
+        </div>
+
+        <section id="suggestions-section" class="suggestions-section hidden" aria-labelledby="suggestions-title">
+          <div class="suggestions-header">
+            <div>
+              <label id="suggestions-title">Prompt Autopilot</label>
+              <span id="suggestions-summary" class="suggestions-summary"></span>
+            </div>
+            <span id="suggestions-model" class="model-label"></span>
+          </div>
+          <div id="suggestions-list" class="suggestions-list"></div>
+        </section>
+
+        <div id="result-box" class="result-box hidden">
+          <label>Optimized Prompt</label>
+          <div class="result-content" id="result-content"></div>
+          <button id="btn-copy" class="btn small">Copy to Clipboard</button>
+        </div>
+
+        <div class="nav-row">
+          <button id="btn-goto-settings" class="nav-link">Settings</button>
+          <button id="btn-goto-ide" class="nav-link">IDE Integration</button>
+        </div>
+      </div>
+
+      <div id="view-settings" class="view">
+        <button id="btn-back-main" class="back-btn">&#8592; Back</button>
+        <h2>Settings</h2>
+
+        <div class="input-group">
+          <label>Groq API Key</label>
+          <div class="key-input-row">
+            <input type="password" id="input-apikey" placeholder="gsk_..." autocomplete="off">
+            <button id="btn-toggle-vis" class="btn-icon" title="Toggle visibility">
+              <span id="eye-icon">&#128065;</span>
+            </button>
+          </div>
+          <a href="https://console.groq.com/keys" target="_blank" class="link">Get free key at console.groq.com</a>
+        </div>
+
+        <div class="input-group">
+          <label>Optimization Mode</label>
+          <select id="select-mode">
+            <option value="general">General (Chotu-style)</option>
+            <option value="context">Context-Aware (Motu-style)</option>
+            <option value="code">Code-Specific</option>
+          </select>
+        </div>
+
+        <div class="input-group">
+          <label>Prompt Purpose</label>
+          <select id="select-purpose">
+            <option value="auto">Auto</option>
+            <option value="feature">Implement Feature</option>
+            <option value="debug">Debug Issue</option>
+            <option value="refactor">Refactor</option>
+            <option value="test">Write Tests</option>
+            <option value="review">Review Changes</option>
+            <option value="explain">Explain Code</option>
+          </select>
+        </div>
+
+        <div class="input-group">
+          <label>Refinement Style</label>
+          <select id="select-style">
+            <option value="pro">Pro</option>
+            <option value="fast">Fast</option>
+            <option value="architect">Architect</option>
+          </select>
+        </div>
+
+        <div class="check-row">
+          <input type="checkbox" id="check-prompt-autopilot" checked>
+          <label for="check-prompt-autopilot">Prompt Autopilot for context mode</label>
+        </div>
+
+        <div class="input-group">
+          <label>Suggestion Candidates</label>
+          <select id="select-suggestion-count">
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </div>
+
+        <div class="input-group">
+          <div class="range-label">
+            <label for="range-quality-threshold">Autopilot Quality Gate</label>
+            <output id="quality-threshold-value">78%</output>
+          </div>
+          <input type="range" id="range-quality-threshold" min="60" max="95" step="1" value="78">
+        </div>
+
+        <div class="input-group">
+          <label>Active Project</label>
+          <div class="key-input-row">
+            <input type="text" id="input-project-root" placeholder="Choose any project folder...">
+            <button id="btn-browse-project" class="btn secondary">Browse</button>
+          </div>
+          <span class="hint">Used when the active workspace matches, is bound below, or project mode is pinned.</span>
+        </div>
+
+        <div class="input-group">
+          <label>Recent Projects</label>
+          <select id="select-project">
+            <option value="">No recent projects</option>
+          </select>
+        </div>
+
+        <div class="input-group">
+          <label>Project Context Mode</label>
+          <select id="select-project-policy">
+            <option value="auto">Match Active Workspace</option>
+            <option value="pinned">Always Use Active Project</option>
+          </select>
+        </div>
+
+        <div class="memory-panel">
+          <div class="panel-title">Detected Workspace</div>
+          <div id="last-context-scope" class="memory-stats">No external workspace detected yet.</div>
+          <div class="memory-actions">
+            <button id="btn-bind-project-scope" class="btn small">Bind Active Project</button>
+            <button id="btn-unbind-project-scope" class="btn small danger">Remove Binding</button>
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label>Global Hotkey</label>
+          <input type="text" id="input-hotkey" value="Ctrl+Shift+Space" readonly>
+          <span class="hint">Optimizes the active prompt without history</span>
+        </div>
+
+        <div class="input-group">
+          <label>Context Hotkey</label>
+          <input type="text" id="input-context-hotkey" value="Ctrl+Alt+Space" readonly>
+          <span class="hint">Advanced RAG: active chat, HyDE expansion, hybrid retrieval, RRF reranking, relevance grading, project state, and self-reflection</span>
+        </div>
+
+        <div class="input-group">
+          <label>Pause / Resume Hotkey</label>
+          <input type="text" id="input-toggle-hotkey" value="Ctrl+Alt+F10" readonly>
+          <span class="hint">Always works globally, including while this window is hidden</span>
+        </div>
+
+        <div class="check-row">
+          <input type="checkbox" id="check-optimizer-enabled" checked>
+          <label for="check-optimizer-enabled">Optimizer enabled</label>
+        </div>
+
+        <div class="check-row">
+          <input type="checkbox" id="check-autocopy" checked>
+          <label for="check-autocopy">Auto-copy optimized prompt</label>
+        </div>
+
+        <div class="check-row">
+          <input type="checkbox" id="check-auto-send-ide">
+          <label for="check-auto-send-ide">Send accepted Autopilot prompt to selected IDE</label>
+        </div>
+
+        <div class="check-row">
+          <input type="checkbox" id="check-local-metrics" checked>
+          <label for="check-local-metrics">Keep private usage counters on this device</label>
+        </div>
+
+        <div class="check-row">
+          <input type="checkbox" id="check-memory-rag" checked>
+          <label for="check-memory-rag">Enable advanced local RAG for Ctrl+Alt+Space</label>
+        </div>
+
+        <div class="check-row">
+          <input type="checkbox" id="check-cross-workspace-memory">
+          <label for="check-cross-workspace-memory">Allow memory across workspaces</label>
+        </div>
+
+        <div class="check-row">
+          <input type="checkbox" id="check-auto-learn" checked>
+          <label for="check-auto-learn">Auto-learn from captured chats and optimized prompts</label>
+        </div>
+
+        <div class="check-row">
+          <input type="checkbox" id="check-project-context" checked>
+          <label for="check-project-context">Include project files in context mode</label>
+        </div>
+
+        <div class="check-row">
+          <input type="checkbox" id="check-git-diff" checked>
+          <label for="check-git-diff">Include git status and diff</label>
+        </div>
+
+        <div class="check-row">
+          <input type="checkbox" id="check-prompt-history">
+          <label for="check-prompt-history">Include previous optimizer history</label>
+        </div>
+
+        <div class="check-row">
+          <input type="checkbox" id="check-cross-workspace-history">
+          <label for="check-cross-workspace-history">Allow optimizer history across workspaces</label>
+        </div>
+
+        <div class="memory-panel">
+          <div id="memory-stats" class="memory-stats">Memory: checking...</div>
+          <div class="memory-actions">
+            <button id="btn-refresh-memory" class="btn small">Refresh</button>
+            <button id="btn-clear-memory" class="btn small danger">Clear Memory</button>
+          </div>
+        </div>
+
+        <div class="value-panel">
+          <div class="panel-title">Local Value</div>
+          <div id="product-metrics" class="product-metrics">Usage: checking...</div>
+        </div>
+
+        <button id="btn-save-settings" class="btn primary full">Save Settings</button>
+        <div id="settings-status" class="status-msg hidden"></div>
+      </div>
+
+      <div id="view-ide" class="view">
+        <button id="btn-back-main2" class="back-btn">&#8592; Back</button>
+        <h2>IDE Integration</h2>
+        <p class="subtitle">Select your IDE to send optimized prompts directly</p>
+
+        <div class="ide-grid">
+          <button class="ide-card" data-ide="vscode">
+            <div class="ide-icon ide-icon-blue">VS</div>
+            <div class="ide-name">VS Code</div>
+            <div class="ide-desc">Clipboard handoff</div>
+          </button>
+          <button class="ide-card" data-ide="cursor">
+            <div class="ide-icon ide-icon-green">Cu</div>
+            <div class="ide-name">Cursor</div>
+            <div class="ide-desc">Clipboard handoff</div>
+          </button>
+          <button class="ide-card" data-ide="codex">
+            <div class="ide-icon">C</div>
+            <div class="ide-name">Codex</div>
+            <div class="ide-desc">OpenAI CLI</div>
+          </button>
+          <button class="ide-card" data-ide="antigravity">
+            <div class="ide-icon">A</div>
+            <div class="ide-name">Antigravity</div>
+            <div class="ide-desc">Google Agent</div>
+          </button>
+          <button class="ide-card" data-ide="claude">
+            <div class="ide-icon">Cl</div>
+            <div class="ide-name">Claude</div>
+            <div class="ide-desc">Anthropic MCP</div>
+          </button>
+          <button class="ide-card" data-ide="opencode">
+            <div class="ide-icon">O</div>
+            <div class="ide-name">OpenCode</div>
+            <div class="ide-desc">REST API</div>
+          </button>
+        </div>
+
+        <div id="ide-status" class="status-msg hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
