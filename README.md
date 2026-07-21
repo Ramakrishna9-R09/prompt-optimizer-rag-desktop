@@ -11,6 +11,8 @@ Most prompt tools treat every conversation as one shared bucket of context. Prom
 - `Ctrl+Shift+Space`: optimize the active textbox without RAG context.
 - `Ctrl+Alt+Space`: capture the current chat, identify the active workspace, retrieve only matching local memory, and insert an optimized prompt.
 - `Ctrl+Alt+F10`: pause or resume the optimizer while the application is minimized or hidden in the tray.
+- Clear live ON/PAUSED/shortcut-conflict status with a one-click pause or resume control.
+- Optional Windows sign-in launch (enabled by default) so the tray service is ready after reboot.
 - Workspace-scoped RAG with hybrid retrieval, reranking, relevance grading, cache tiers, and optional cross-workspace reuse.
 - Guardrails for prompt injection, secret redaction, token limits, and output validation.
 - Windows UI Automation fallback for reliable copy, focus, and verified text insertion in external AI tools.
@@ -35,13 +37,24 @@ Set your model API key in the application Settings screen. Never commit API keys
 ```powershell
 $env:CSC_IDENTITY_AUTO_DISCOVERY='false'
 npm run build
+npm run build:win
 ```
 
-The Windows package is generated outside the source directory in `../dist-advanced-rag-release/win-unpacked`.
+The unpacked Windows package and NSIS installer are generated outside the source directory in `../dist-advanced-rag-release`.
 
 ## Validation
 
-Version 1.1.1 includes automated tests for scoped retrieval, RAG diagnostics, security guardrails, shortcut state, prompt Autopilot, and local product metrics. The release flow also includes a RAG smoke test and dependency audit.
+Version 1.2.0 includes automated tests for scoped retrieval, RAG diagnostics, security guardrails, shortcut state, Prompt Autopilot, onboarding, always-on startup behavior, and local product metrics. The release flow also includes a RAG smoke test and dependency audit.
+
+## Commercial release materials
+
+- `site/`: deployable product landing page
+- `PRIVACY.md` and `TERMS.md`: legal-review drafts
+- `PAYMENT.md`: UPI pilot-payment workflow and invoice template
+- `SALES_PLAYBOOK.md`: pilot offer, demo, qualification, and metrics
+- `LAUNCH_CHECKLIST.md`: owner actions required before taking payment
+
+The current source remains MIT-licensed. You may charge for packaged releases, services, support, and managed enterprise capabilities, but obtain legal advice before changing licensing or accepting customer data.
 
 ## Portfolio Notes
 

@@ -1,5 +1,14 @@
 # Prompt Optimizer Release Notes
 
+## Commercial Release 1.2.0
+
+- Added branded application, tray, website, and installer assets.
+- Added a guided first-run experience covering shortcuts, privacy, and Windows sign-in launch.
+- Added a configurable NSIS installer with desktop and Start menu shortcuts.
+- Added a deployable landing page, paid-pilot playbook, privacy notice, terms draft, and owner launch checklist.
+- Added `npm run release:check`, which blocks commercial release while seller identity, support contacts, or Windows code signing are missing.
+- The generated 1.2.0 installer is intentionally marked pre-release until it is Authenticode-signed and legal/contact placeholders are replaced.
+
 ## Product Modes
 
 - `Ctrl+Shift+Space`: No-memory LLM mode. Reads only the current active textbox, rewrites it into a stronger prompt, and pastes the result back.
@@ -45,6 +54,6 @@ This is a pricing and adoption target, not booked revenue. Production validation
 - Validate each IDE adapter on a clean machine and keep automatic execution opt-in.
 - Add billing, account entitlements, team administration, and server-side subscription analytics before selling paid cloud plans.
 - Sign the Windows executable and installer before public distribution.
-- Add an onboarding screen explaining privacy, local memory, and clear-memory controls.
+- Verify the onboarding screen and privacy controls on a clean machine.
 - Keep `npm audit` at zero known vulnerabilities. Verified with Electron 43.1.0 and electron-builder 26.15.3 on 2026-07-13.
 - Add crash reporting and opt-in analytics only after privacy copy is finalized.

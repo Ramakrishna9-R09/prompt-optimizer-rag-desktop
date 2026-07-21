@@ -1,5 +1,6 @@
 # Dependencies and generated application bundles
 node_modules/
+.npm-cache/
 dist/
 dist-advanced-rag-release/
 out/

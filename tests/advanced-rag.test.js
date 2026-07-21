@@ -216,9 +216,59 @@ test('five cache tiers are initialized and observable', () => {
 
 test('global optimizer toggle is enabled by default and has a dedicated hotkey', () => {
   assert.equal(DEFAULT_CONFIG.optimizerEnabled, true);
+  assert.equal(DEFAULT_CONFIG.launchAtStartup, true);
   assert.equal(DEFAULT_CONFIG.toggleHotkey, 'Ctrl+Alt+F10');
   assert.notEqual(DEFAULT_CONFIG.toggleHotkey, DEFAULT_CONFIG.hotkey);
   assert.notEqual(DEFAULT_CONFIG.toggleHotkey, DEFAULT_CONFIG.contextHotkey);
+});
+
+test('always-on controls expose startup launch and live runtime health', () => {
+  const saved = saveConfig({ launchAtStartup: false });
+  assert.equal(saved.launchAtStartup, false);
+  assert.equal(saveConfig({ launchAtStartup: 'yes' }).launchAtStartup, true);
+
+  const mainSource = fs.readFileSync(path.join(__dirname, '..', 'gui', 'main.js'), 'utf-8');
+  const rendererSource = fs.readFileSync(path.join(__dirname, '..', 'gui', 'renderer', 'app.js'), 'utf-8');
+  const htmlSource = fs.readFileSync(path.join(__dirname, '..', 'gui', 'renderer', 'index.html'), 'utf-8');
+  assert.match(mainSource, /setLoginItemSettings/);
+  assert.match(mainSource, /--hidden/);
+  assert.match(mainSource, /Status: ON/);
+  assert.match(rendererSource, /Optimizer ON/);
+  assert.match(rendererSource, /shortcut conflict/);
+  assert.match(htmlSource, /check-launch-startup/);
+  assert.match(htmlSource, /btn-toggle-optimizer/);
+});
+
+test('commercial onboarding and release assets are present', () => {
+  assert.equal(DEFAULT_CONFIG.onboardingCompleted, false);
+  const rendererSource = fs.readFileSync(path.join(__dirname, '..', 'gui', 'renderer', 'app.js'), 'utf-8');
+  const htmlSource = fs.readFileSync(path.join(__dirname, '..', 'gui', 'renderer', 'index.html'), 'utf-8');
+  const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'));
+
+  assert.match(rendererSource, /completeOnboarding/);
+  assert.match(htmlSource, /Ctrl \+ Alt \+ Space/);
+  assert.match(htmlSource, /onboarding-launch-startup/);
+  assert.equal(packageJson.build.nsis.oneClick, false);
+  assert.equal(packageJson.build.nsis.createDesktopShortcut, true);
+  for (const file of ['PRIVACY.md', 'TERMS.md', 'SALES_PLAYBOOK.md', 'LAUNCH_CHECKLIST.md', 'site/index.html']) {
+    assert.equal(fs.existsSync(path.join(__dirname, '..', file)), true, `${file} should exist`);
+  }
+});
+
+test('premium command center preserves core actions and surfaces live value', () => {
+  const htmlSource = fs.readFileSync(path.join(__dirname, '..', 'gui', 'renderer', 'index.html'), 'utf-8');
+  const rendererSource = fs.readFileSync(path.join(__dirname, '..', 'gui', 'renderer', 'app.js'), 'utf-8');
+  const mainSource = fs.readFileSync(path.join(__dirname, '..', 'gui', 'main.js'), 'utf-8');
+
+  for (const id of ['input-prompt', 'input-context', 'btn-optimize', 'btn-suggest', 'btn-paste', 'btn-preview-context']) {
+    assert.match(htmlSource, new RegExp(`id="${id}"`));
+  }
+  assert.match(htmlSource, /Command Center/);
+  assert.match(htmlSource, /INTELLIGENCE ENGINE/);
+  assert.match(htmlSource, /main-metric-acceptance/);
+  assert.match(rendererSource, /updatePromptCharacterCount/);
+  assert.match(rendererSource, /main-metric-time/);
+  assert.match(mainSource, /width: 980/);
 });
 
 test('workspace isolation is the migrated default and cross-workspace reuse is opt-in', () => {

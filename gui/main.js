@@ -37,9 +37,12 @@ const { injectPrompt: injectToOpenCode } = require('../adapters/opencode/sdk-cli
 let mainWindow = null;
 let tray = null;
 let isRefining = false;
+let isCapturingInput = false;
 let optimizerEnabled = loadConfig().optimizerEnabled !== false;
 let lastToggleAt = 0;
 let lastPipelineDiagnostics = null;
+let debugLogChecked = false;
+const startedHidden = process.argv.includes('--hidden');
 const autopilotSessions = new Map();
 const INTERNAL_CONTEXT_SCOPE = deriveContextScope({
   processName: 'Prompt Optimizer',
@@ -85,7 +88,7 @@ if (!gotLock) {
 }
 
 function showMainWindow() {
-  if (!mainWindow) return;
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow();
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
@@ -100,11 +103,49 @@ function logDebug(message) {
   console.log(message);
   try {
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
-    fs.appendFileSync(path.join(CONFIG_DIR, 'debug.log'), line, 'utf-8');
+    const logPath = path.join(CONFIG_DIR, 'debug.log');
+    if (!debugLogChecked) {
+      debugLogChecked = true;
+      if (fs.existsSync(logPath) && fs.statSync(logPath).size > 1024 * 1024) {
+        const previousPath = path.join(CONFIG_DIR, 'debug.previous.log');
+        if (fs.existsSync(previousPath)) fs.unlinkSync(previousPath);
+        fs.renameSync(logPath, previousPath);
+      }
+    }
+    fs.appendFileSync(logPath, line, 'utf-8');
   } catch {
     // Logging should never block the optimizer.
   }
 }
+
+function applyLaunchAtStartup(enabled = loadConfig().launchAtStartup !== false) {
+  if (process.platform !== 'win32') return { supported: false, enabled: false };
+  if (!app.isPackaged) {
+    logDebug('[Startup] Sign-in launch is applied only by the packaged application');
+    return { supported: true, enabled: false, development: true };
+  }
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: Boolean(enabled),
+      path: process.execPath,
+      args: ['--hidden']
+    });
+    const actual = app.getLoginItemSettings({ path: process.execPath, args: ['--hidden'] });
+    logDebug(`[Startup] Windows sign-in launch ${actual.openAtLogin ? 'enabled' : 'disabled'}`);
+    return { supported: true, enabled: actual.openAtLogin };
+  } catch (error) {
+    logDebug(`[Startup] Failed to update Windows sign-in launch: ${error.message}`);
+    return { supported: true, enabled: false, error: error.message };
+  }
+}
+
+process.on('uncaughtException', (error) => {
+  logDebug(`[Crash] Uncaught exception: ${error?.stack || error?.message || String(error)}`);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logDebug(`[Crash] Unhandled rejection: ${reason?.stack || reason?.message || String(reason)}`);
+});
 
 function sendWindowsKeys(keys) {
   return new Promise((resolve, reject) => {
@@ -136,6 +177,45 @@ public static class NativeMethods {
   return runPowerShell(script, 2000);
 }
 
+async function captureActiveInputFast() {
+  const script = `
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class FastCaptureNative {
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
+}
+"@
+$result = [ordered]@{ handle = [FastCaptureNative]::GetForegroundWindow().ToInt64(); text = ''; copied = $false }
+try {
+  foreach ($key in @(0x10, 0x11, 0x12, 0x5B, 0x5C)) { [FastCaptureNative]::keybd_event($key, 0, 2, [UIntPtr]::Zero) }
+  Start-Sleep -Milliseconds 80
+  [System.Windows.Forms.SendKeys]::SendWait('^a')
+  [System.Windows.Forms.SendKeys]::SendWait('^c')
+  for ($attempt = 0; $attempt -lt 6; $attempt++) {
+    Start-Sleep -Milliseconds 55
+    try { $result.text = [System.Windows.Forms.Clipboard]::GetText() } catch {}
+    if ($result.text) { $result.copied = $true; break }
+  }
+} catch {}
+$result | ConvertTo-Json -Compress
+`;
+  const output = await runPowerShell(script, 3500);
+  try {
+    const result = JSON.parse(output || '{}');
+    return {
+      handle: String(result.handle || ''),
+      text: String(result.text || '').trim().slice(-12000),
+      descriptor: null,
+      method: result.copied ? 'fast-clipboard' : 'fast-empty'
+    };
+  } catch {
+    return { handle: '', text: '', descriptor: null, method: 'fast-failed' };
+  }
+}
+
 async function getWindowContextMetadata(handle) {
   if (!handle) return {};
   const safeHandle = String(handle).replace(/[^0-9]/g, '') || '0';
@@ -152,6 +232,7 @@ public static class ContextWindowBounds {
   [DllImport("user32.dll")]
   public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
 }
+
 "@
 
 $result = [ordered]@{
@@ -263,6 +344,38 @@ $result | ConvertTo-Json -Compress -Depth 4
   }
 }
 
+async function getWindowContextMetadataFast(handle) {
+  if (!handle) return {};
+  const safeHandle = String(handle).replace(/[^0-9]/g, '') || '0';
+  const script = `
+Add-Type -AssemblyName UIAutomationClient
+$result = [ordered]@{ processName = ''; executablePath = ''; windowTitle = ''; focusedControlType = ''; focusedName = ''; workspaceCandidates = @() }
+try {
+  $root = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]${safeHandle})
+  if ($null -ne $root) {
+    $result.windowTitle = [string]$root.Current.Name
+    $process = Get-Process -Id $root.Current.ProcessId
+    $result.processName = [string]$process.ProcessName
+    try { $result.executablePath = [string]$process.Path } catch {}
+    $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+    if ($null -ne $focused -and $focused.Current.ProcessId -eq $root.Current.ProcessId) {
+      $result.focusedControlType = [string]$focused.Current.ControlType.ProgrammaticName
+      $result.focusedName = [string]$focused.Current.Name
+    }
+  }
+} catch {}
+$result | ConvertTo-Json -Compress -Depth 3
+`;
+  const raw = await runPowerShell(script, 3500);
+  try {
+    const metadata = JSON.parse(raw || '{}');
+    logDebug(`[Context] Fast metadata app=${metadata.processName || 'unknown'} title=${metadata.windowTitle || 'unknown'}`);
+    return metadata;
+  } catch {
+    return {};
+  }
+}
+
 async function focusWindowHandle(handle) {
   if (!handle) return;
   const script = `
@@ -322,7 +435,7 @@ function notify(type, message) {
 
 function notifyInBackground(type, message) {
   notify(type, message);
-  if (mainWindow?.isVisible() || !Notification.isSupported()) return;
+  if (mainWindow?.isFocused() || !Notification.isSupported()) return;
   try {
     new Notification({ title: 'Prompt Optimizer', body: message }).show();
   } catch (error) {
@@ -337,13 +450,14 @@ function reportProgress(message) {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 520,
-    height: 760,
-    minWidth: 460,
-    minHeight: 640,
+    width: 980,
+    height: 680,
+    minWidth: 720,
+    minHeight: 600,
     resizable: true,
     frame: false,
     transparent: true,
+    icon: path.join(__dirname, '..', 'build', 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -363,8 +477,13 @@ function createWindow() {
   });
 
   mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
+    if (!startedHidden) mainWindow.show();
     registerGlobalShortcuts();
+  });
+
+  mainWindow.webContents.on('render-process-gone', (event, details) => {
+    logDebug(`[Crash] Renderer exited reason=${details.reason} code=${details.exitCode}`);
+    notifyInBackground('error', 'The app window stopped unexpectedly. Click the tray icon to reopen it.');
   });
 
   mainWindow.on('close', (e) => {
@@ -376,7 +495,7 @@ function createWindow() {
 }
 
 function createTray() {
-  const icon = nativeImage.createEmpty();
+  const icon = nativeImage.createFromPath(path.join(__dirname, '..', 'build', 'icon.ico'));
   tray = new Tray(icon);
   updateTrayMenu();
   tray.on('click', () => showMainWindow());
@@ -384,7 +503,16 @@ function createTray() {
 
 function updateTrayMenu() {
   if (!tray) return;
+  const state = getShortcutState();
+  const shortcutsReady = state.registered.optimize && state.registered.context && state.registered.toggle;
   const contextMenu = Menu.buildFromTemplate([
+    {
+      label: optimizerEnabled
+        ? `Status: ON${shortcutsReady ? '' : ' (shortcut conflict)'}`
+        : 'Status: PAUSED',
+      enabled: false
+    },
+    { type: 'separator' },
     { label: 'Show', click: () => showMainWindow() },
     {
       label: `${optimizerEnabled ? 'Pause' : 'Enable'} Optimizer (${SHORTCUTS.toggle.label})`,
@@ -403,10 +531,10 @@ function updateTrayMenu() {
       click: () => optimizeActiveInput(true)
     },
     { type: 'separator' },
-    { label: 'Quit', click: () => { app.isQuitting = true; app.quit(); } }
+    { label: 'Always-on background listener active', enabled: false }
   ]);
 
-  tray.setToolTip(`Prompt Optimizer - ${optimizerEnabled ? 'On' : 'Paused'}`);
+  tray.setToolTip(`Prompt Optimizer — ${optimizerEnabled ? (shortcutsReady ? 'ON' : 'ON, shortcut conflict') : 'PAUSED'}`);
   tray.setContextMenu(contextMenu);
 }
 
@@ -415,7 +543,10 @@ async function optimizeClipboard() {
     notify('warning', `Optimizer is paused. Press ${SHORTCUTS.toggle.label} to enable it.`);
     return;
   }
-  if (isRefining) return;
+  if (isRefining || isCapturingInput) {
+    notifyInBackground('warning', 'Prompt Optimizer is already working. Please wait for the current command.');
+    return;
+  }
   const text = clipboard.readText();
   if (!text || text.trim().length < 3) return;
 
@@ -824,7 +955,7 @@ public static class NativeMethods {
 
 $items = New-Object 'System.Collections.Generic.List[string]'
 $seen = New-Object 'System.Collections.Generic.HashSet[string]'
-$maxItems = 260
+$maxItems = 120
 $maxChars = ${CONTEXT_LIMITS.activeWindowChars}
 $rootLeft = 0
 $rootWidth = 0
@@ -841,7 +972,7 @@ function Add-ContextText([string]$Text) {
 }
 
 function Read-Element([System.Windows.Automation.AutomationElement]$Element, [int]$Depth) {
-  if ($null -eq $Element -or $Depth -gt 8 -or $items.Count -ge $maxItems) { return }
+  if ($null -eq $Element -or $Depth -gt 5 -or $items.Count -ge $maxItems) { return }
 
   $include = $true
   $areaRatio = 0
@@ -913,7 +1044,7 @@ if ($joined.Length -gt $maxChars) { $joined = $joined.Substring([Math]::Max(0, $
 $joined
 `;
 
-  const body = await runPowerShell(script, 6500);
+  const body = await runPowerShell(script, 4500);
   const scope = deriveContextScope(metadata, body);
   const identity = [
     `Active application: ${scope.appLabel}`,
@@ -1479,7 +1610,57 @@ $result | ConvertTo-Json -Compress
   }
 }
 
+async function pasteActiveInputFast(targetWindowHandle) {
+  const safeHandle = String(targetWindowHandle || '0').replace(/[^0-9]/g, '') || '0';
+  if (safeHandle === '0') return { success: false, focused: false, method: 'fast-no-target' };
+  const script = `
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class FastPasteNative {
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, IntPtr processId);
+  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint from, uint to, bool attach);
+  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr window, int command);
+  [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr window);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
+}
+"@
+$target = [IntPtr]${safeHandle}
+$current = [FastPasteNative]::GetForegroundWindow()
+$currentThread = [FastPasteNative]::GetWindowThreadProcessId($current, [IntPtr]::Zero)
+$targetThread = [FastPasteNative]::GetWindowThreadProcessId($target, [IntPtr]::Zero)
+[FastPasteNative]::AttachThreadInput($currentThread, $targetThread, $true) | Out-Null
+[FastPasteNative]::ShowWindowAsync($target, 9) | Out-Null
+[FastPasteNative]::BringWindowToTop($target) | Out-Null
+[FastPasteNative]::SetForegroundWindow($target) | Out-Null
+[FastPasteNative]::AttachThreadInput($currentThread, $targetThread, $false) | Out-Null
+foreach ($key in @(0x10, 0x11, 0x12, 0x5B, 0x5C)) { [FastPasteNative]::keybd_event($key, 0, 2, [UIntPtr]::Zero) }
+Start-Sleep -Milliseconds 90
+$sent = $false
+try {
+  [System.Windows.Forms.SendKeys]::SendWait('^a')
+  [System.Windows.Forms.SendKeys]::SendWait('^v')
+  $sent = $true
+} catch {}
+Start-Sleep -Milliseconds 160
+[ordered]@{ focused = ([FastPasteNative]::GetForegroundWindow() -eq $target); sent = $sent; method = 'fast-sendkeys' } | ConvertTo-Json -Compress
+`;
+  const output = await runPowerShell(script, 3500);
+  try {
+    const result = JSON.parse(output || '{}');
+    return { ...result, success: result.focused === true && result.sent === true };
+  } catch {
+    return { success: false, focused: false, method: 'fast-failed' };
+  }
+}
+
 async function replaceActiveInputText(targetWindowHandle, descriptor, text) {
+  const fastResult = await pasteActiveInputFast(targetWindowHandle);
+  logDebug(`[Shortcuts] Paste fast method=${fastResult.method} focused=${Boolean(fastResult.focused)} sent=${Boolean(fastResult.sent)} success=${Boolean(fastResult.success)}`);
+  if (fastResult.success) return { ...fastResult, attempts: 1 };
   let lastResult = { success: false, focused: false, observed: '' };
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     lastResult = await pasteToCapturedInput(targetWindowHandle, descriptor, text);
@@ -1491,11 +1672,16 @@ async function replaceActiveInputText(targetWindowHandle, descriptor, text) {
 }
 
 async function optimizeActiveInput(useConversationContext = false) {
+  const commandStartedAt = Date.now();
   if (!optimizerEnabled) {
-    notifyInBackground('warning', `Optimizer is paused. Press ${SHORTCUTS.toggle.label} to enable it.`);
+    setOptimizerEnabled(true, { announce: false });
+    notifyInBackground('success', 'Optimizer awakened by command. Running now.');
+  }
+  if (isRefining || isCapturingInput) {
+    logDebug('[Shortcuts] Command ignored because another command is active');
+    notifyInBackground('warning', 'Already optimizing. Please wait for the current command to finish.');
     return;
   }
-  if (isRefining) return;
   logDebug(`[Shortcuts] Triggered ${useConversationContext ? SHORTCUTS.context.label : SHORTCUTS.optimize.label}`);
   reportProgress(useConversationContext ? 'Reading active chat and project context...' : 'Reading active prompt...');
 
@@ -1504,26 +1690,46 @@ async function optimizeActiveInput(useConversationContext = false) {
     return;
   }
 
-  const targetWindowHandle = await getForegroundWindowHandle();
-  logDebug(`[Shortcuts] Target window handle: ${targetWindowHandle || 'unknown'}`);
-  const activeInput = await readActiveInputText(targetWindowHandle);
-  const windowMetadata = useConversationContext ? await getWindowContextMetadata(targetWindowHandle) : {};
-  const contextScope = useConversationContext ? deriveContextScope(windowMetadata) : null;
-  if (contextScope) {
-    rememberContextScope(contextScope);
-    logDebug(`[Context] Scope detected: ${contextScope.id} (${contextScope.label})`);
+  isCapturingInput = true;
+  let targetWindowHandle = '';
+  let activeInput = { text: '', descriptor: null };
+  let windowMetadata = {};
+  let contextScope = null;
+  let activeWindowContext = '';
+  try {
+    const previousClipboard = clipboard.readText();
+    clipboard.writeText('');
+    const fastCapture = await captureActiveInputFast();
+    targetWindowHandle = fastCapture.handle || await getForegroundWindowHandle();
+    logDebug(`[Shortcuts] Target window handle: ${targetWindowHandle || 'unknown'}`);
+    if (!targetWindowHandle) throw new Error('Could not detect the active window. Click the prompt box and try again.');
+    if (fastCapture.text) {
+      activeInput = { text: fastCapture.text, descriptor: null };
+      logDebug(`[Shortcuts] Active input captured through ${fastCapture.method}: ${fastCapture.text.length}`);
+    } else {
+      clipboard.writeText(previousClipboard);
+      activeInput = await readActiveInputText(targetWindowHandle);
+    }
+    windowMetadata = useConversationContext ? await getWindowContextMetadataFast(targetWindowHandle) : {};
+    contextScope = useConversationContext ? deriveContextScope(windowMetadata) : null;
+    if (contextScope) {
+      rememberContextScope(contextScope);
+      logDebug(`[Context] Scope detected: ${contextScope.id} (${contextScope.label})`);
+    }
+    activeWindowContext = useConversationContext
+      ? await captureActiveWindowContext(targetWindowHandle, windowMetadata)
+      : '';
+  } catch (error) {
+    logDebug(`[Shortcuts] Input capture failed: ${error.message}`);
+    notifyInBackground('error', error.message);
+    return;
+  } finally {
+    isCapturingInput = false;
   }
-  const activeWindowContext = useConversationContext
-    ? await captureActiveWindowContext(targetWindowHandle, windowMetadata)
-    : '';
   const text = activeInput.text;
-  logDebug(`[Shortcuts] Active input copy length: ${text.length}`);
+  logDebug(`[Performance] captureMs=${Date.now() - commandStartedAt} inputLength=${text.length}`);
   if (!text || text.trim().length < 3) {
-    showMainWindow();
-    mainWindow?.webContents.send('notification', {
-      type: 'warning',
-      message: 'No text found in the active input. Click the chatbox and try again.'
-    });
+    notifyInBackground('warning', 'No text found. Click inside the prompt box, type or select text, then try again.');
     return;
   }
 
@@ -1611,6 +1817,7 @@ async function optimizeActiveInput(useConversationContext = false) {
       reportProgress('Returning to original input...');
       const insertion = await replaceActiveInputText(targetWindowHandle, activeInput.descriptor, result.refined);
       logDebug(`[Shortcuts] Paste ${insertion.success ? 'verified' : 'failed'} attempts=${insertion.attempts}`);
+      logDebug(`[Performance] totalMs=${Date.now() - commandStartedAt} modelMs=${result.durationMs ?? 'n/a'} insertionMethod=${insertion.method || 'verified-uia'}`);
       reportProgress(insertion.success
         ? 'Optimized prompt inserted.'
         : 'Optimized prompt copied. Automatic insertion needs focus.');
@@ -1689,8 +1896,7 @@ function setOptimizerEnabled(enabled, { persist = true, announce = true } = {}) 
   optimizerEnabled = Boolean(enabled);
   if (persist) saveConfig({ optimizerEnabled });
 
-  const failed = optimizerEnabled ? registerActionShortcuts() : [];
-  if (!optimizerEnabled) unregisterActionShortcuts();
+  const failed = registerActionShortcuts();
 
   updateTrayMenu();
   broadcastOptimizerState();
@@ -1721,8 +1927,7 @@ function toggleOptimizer() {
 
 function registerGlobalShortcuts() {
   const toggleRegistered = registerShortcut(SHORTCUTS.toggle, () => toggleOptimizer());
-  const failed = optimizerEnabled ? registerActionShortcuts() : [];
-  if (!optimizerEnabled) unregisterActionShortcuts();
+  const failed = registerActionShortcuts();
 
   updateTrayMenu();
   broadcastOptimizerState();
@@ -1791,6 +1996,9 @@ ipcMain.handle('save-config', (event, updates = {}) => {
   const saved = saveConfig(updates);
   if (Object.prototype.hasOwnProperty.call(updates, 'optimizerEnabled')) {
     setOptimizerEnabled(saved.optimizerEnabled, { persist: false, announce: false });
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, 'launchAtStartup')) {
+    applyLaunchAtStartup(saved.launchAtStartup);
   }
   return loadConfig();
 });
@@ -1982,14 +2190,14 @@ ipcMain.handle('quit-app', () => { app.isQuitting = true; app.quit(); });
 
 app.whenReady().then(() => {
   if (process.platform === 'win32') app.setAppUserModelId('com.promptoptimizer.desktop');
+  applyLaunchAtStartup();
+  registerGlobalShortcuts();
   createWindow();
   createTray();
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  // This is a tray application. It should remain available after its window closes.
 });
 
 app.on('will-quit', () => {

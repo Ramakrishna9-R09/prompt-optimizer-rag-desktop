@@ -18,60 +18,113 @@
     </div>
 
     <div class="content">
-      <div id="view-main" class="view active">
-        <div class="status-bar">
-          <div class="status-dot" id="status-dot"></div>
-          <span id="status-text">Checking key...</span>
-        </div>
+      <div id="view-main" class="view active command-view">
+        <div class="command-ambient command-ambient-one"></div>
+        <div class="command-ambient command-ambient-two"></div>
 
-        <div class="input-group">
-          <label>Prompt to Optimize</label>
-          <textarea id="input-prompt" rows="4" placeholder="Type or paste your prompt here..."></textarea>
-        </div>
-
-        <div class="input-group">
-          <label>Conversation Context</label>
-          <textarea id="input-context" rows="3" placeholder="Optional: paste recent chat history here. Ctrl+Alt+Space uses local memory RAG, current window chat text, project files, and current git changes."></textarea>
-        </div>
-
-        <div class="btn-row">
-          <button id="btn-optimize" class="btn primary">Optimize</button>
-          <button id="btn-suggest" class="btn accent">AI Suggestions</button>
-          <button id="btn-paste" class="btn secondary">From Clipboard</button>
-          <button id="btn-preview-context" class="btn secondary">Preview Context</button>
-        </div>
-
-        <div id="context-preview-box" class="result-box hidden">
-          <label>Context Preview</label>
-          <div class="result-content context-preview" id="context-preview-content"></div>
-        </div>
-
-        <section id="suggestions-section" class="suggestions-section hidden" aria-labelledby="suggestions-title">
-          <div class="suggestions-header">
-            <div>
-              <label id="suggestions-title">Prompt Autopilot</label>
-              <span id="suggestions-summary" class="suggestions-summary"></span>
-            </div>
-            <span id="suggestions-model" class="model-label"></span>
+        <header class="command-header">
+          <div class="command-brand">
+            <div class="command-logo"><span></span><i></i></div>
+            <div><span class="command-kicker">PROMPT INTELLIGENCE</span><strong>Command Center</strong></div>
           </div>
-          <div id="suggestions-list" class="suggestions-list"></div>
+          <div class="status-bar">
+            <div class="status-orbit"><div class="status-dot" id="status-dot"></div></div>
+            <div class="status-copy">
+              <strong id="status-text">Checking optimizer...</strong>
+              <span id="status-detail">Checking global shortcuts...</span>
+            </div>
+            <button id="btn-toggle-optimizer" class="status-action" type="button">Checking...</button>
+          </div>
+        </header>
+
+        <section class="command-hero">
+          <div><span class="hero-badge">CONTEXT-AWARE AI ORCHESTRATION</span><h1>Turn intent into<br><em>execution.</em></h1></div>
+          <p>Ground every request in the right workspace, rank the strongest strategy, and deliver a prompt built to perform.</p>
         </section>
 
-        <div id="result-box" class="result-box hidden">
-          <label>Optimized Prompt</label>
-          <div class="result-content" id="result-content"></div>
-          <button id="btn-copy" class="btn small">Copy to Clipboard</button>
-        </div>
+        <div class="command-grid">
+          <main class="command-workspace">
+            <section class="power-card prompt-card">
+              <div class="card-heading">
+                <div><span class="section-index">01</span><div><strong>Mission Input</strong><small>Describe the outcome. Autopilot builds the execution plan.</small></div></div>
+                <kbd>CTRL + SHIFT + SPACE</kbd>
+              </div>
+              <textarea id="input-prompt" rows="5" placeholder="What do you want to accomplish?"></textarea>
+              <div class="prompt-footer">
+                <span><i class="privacy-pulse"></i> Local guardrails active</span>
+                <span id="prompt-character-count">0 characters</span>
+              </div>
+            </section>
 
-        <div class="nav-row">
-          <button id="btn-goto-settings" class="nav-link">Settings</button>
-          <button id="btn-goto-ide" class="nav-link">IDE Integration</button>
+            <div class="primary-actions">
+              <button id="btn-optimize" class="btn primary power-action"><span class="action-glyph">✦</span><span><strong>Optimize Prompt</strong><small>Fast precision rewrite</small></span></button>
+              <button id="btn-suggest" class="btn accent power-action"><span class="action-glyph">◎</span><span><strong>Launch Autopilot</strong><small>Generate and rank strategies</small></span><kbd>CTRL + ALT + SPACE</kbd></button>
+            </div>
+
+            <section class="power-card context-card">
+              <div class="card-heading">
+                <div><span class="section-index">02</span><div><strong>Context Layer</strong><small>Optional live evidence for the current mission.</small></div></div>
+                <span class="secure-chip">ISOLATED</span>
+              </div>
+              <textarea id="input-context" rows="3" placeholder="Add conversation context, constraints, or supporting evidence..."></textarea>
+              <div class="utility-actions">
+                <button id="btn-paste" class="btn secondary"><span>↧</span> Import Clipboard</button>
+                <button id="btn-preview-context" class="btn secondary"><span>◫</span> Inspect Context</button>
+              </div>
+            </section>
+
+            <div id="context-preview-box" class="result-box hidden">
+              <label>Context Intelligence Preview</label>
+              <div class="result-content context-preview" id="context-preview-content"></div>
+            </div>
+
+            <section id="suggestions-section" class="suggestions-section hidden" aria-labelledby="suggestions-title">
+              <div class="suggestions-header"><div><label id="suggestions-title">Prompt Autopilot</label><span id="suggestions-summary" class="suggestions-summary"></span></div><span id="suggestions-model" class="model-label"></span></div>
+              <div id="suggestions-list" class="suggestions-list"></div>
+            </section>
+
+            <div id="result-box" class="result-box hidden">
+              <label>Optimized Prompt</label>
+              <div class="result-content" id="result-content"></div>
+              <button id="btn-copy" class="btn small">Copy to Clipboard</button>
+            </div>
+          </main>
+
+          <aside class="intelligence-rail">
+            <section class="rail-card engine-card">
+              <div class="rail-title"><span>INTELLIGENCE ENGINE</span><i>LIVE</i></div>
+              <div class="engine-core"><div class="core-ring ring-one"></div><div class="core-ring ring-two"></div><div class="core-spark">✦</div></div>
+              <div class="engine-stages"><span class="ready">Intent</span><span class="ready">Retrieve</span><span class="ready">Rerank</span><span class="ready">Guard</span><span class="ready">Deliver</span></div>
+            </section>
+
+            <section class="rail-card metrics-card">
+              <div class="rail-title"><span>LOCAL IMPACT</span><small>PRIVATE</small></div>
+              <div class="metric-grid">
+                <div><strong id="main-metric-optimizations">0</strong><span>Optimizations</span></div>
+                <div><strong id="main-metric-acceptance">0%</strong><span>Accepted</span></div>
+                <div><strong id="main-metric-time">0m</strong><span>Time saved</span></div>
+              </div>
+            </section>
+
+            <section class="rail-card shortcut-card">
+              <div class="rail-title"><span>GLOBAL CONTROL</span></div>
+              <div class="shortcut-row"><kbd>CTRL SHIFT SPACE</kbd><span>Quick optimize</span></div>
+              <div class="shortcut-row"><kbd>CTRL ALT SPACE</kbd><span>Context Autopilot</span></div>
+              <div class="shortcut-row"><kbd>CTRL ALT F10</kbd><span>Pause / resume</span></div>
+            </section>
+
+            <nav class="command-nav">
+              <button id="btn-goto-settings" class="nav-link"><span>⚙</span><div><strong>System Settings</strong><small>Models, privacy, projects</small></div><b>›</b></button>
+              <button id="btn-goto-ide" class="nav-link"><span>⌘</span><div><strong>IDE Integrations</strong><small>Route prompts to tools</small></div><b>›</b></button>
+            </nav>
+          </aside>
         </div>
       </div>
 
       <div id="view-settings" class="view">
         <button id="btn-back-main" class="back-btn">&#8592; Back</button>
         <h2>Settings</h2>
+        <button id="btn-show-onboarding" class="btn secondary full onboarding-replay" type="button">View Getting Started Guide</button>
 
         <div class="input-group">
           <label>Groq API Key</label>
@@ -81,6 +134,7 @@
               <span id="eye-icon">&#128065;</span>
             </button>
           </div>
+          <div id="api-key-state" class="api-key-state">Checking saved key...</div>
           <a href="https://console.groq.com/keys" target="_blank" class="link">Get free key at console.groq.com</a>
         </div>
 
@@ -194,6 +248,11 @@
         </div>
 
         <div class="check-row">
+          <input type="checkbox" id="check-launch-startup" checked>
+          <label for="check-launch-startup">Launch automatically when I sign in to Windows</label>
+        </div>
+
+        <div class="check-row">
           <input type="checkbox" id="check-autocopy" checked>
           <label for="check-autocopy">Auto-copy optimized prompt</label>
         </div>
@@ -300,6 +359,23 @@
 
         <div id="ide-status" class="status-msg hidden"></div>
       </div>
+    </div>
+  </div>
+
+  <div id="onboarding" class="onboarding hidden" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+    <div class="onboarding-card">
+      <p class="onboarding-kicker">WELCOME TO PROMPT OPTIMIZER</p>
+      <h1 id="onboarding-title">Better context, without workspace crossover.</h1>
+      <p class="onboarding-lede">Prompt Optimizer runs in the Windows tray and improves prompts in the tools you already use.</p>
+      <div class="onboarding-grid">
+        <div><kbd>Ctrl + Shift + Space</kbd><strong>Quick optimize</strong><span>Improves the active prompt without memory.</span></div>
+        <div><kbd>Ctrl + Alt + Space</kbd><strong>Context mode</strong><span>Uses workspace-scoped local RAG and Prompt Autopilot.</span></div>
+        <div><kbd>Ctrl + Alt + F10</kbd><strong>Pause or resume</strong><span>Always works while the app is hidden in the tray.</span></div>
+      </div>
+      <div class="onboarding-privacy"><strong>Privacy controls are yours.</strong><span>Memory and metrics stay local. Model requests use your configured provider key. You can clear memory or disable learning in Settings.</span></div>
+      <label class="onboarding-choice"><input id="onboarding-launch-startup" type="checkbox" checked> Launch automatically when I sign in to Windows</label>
+      <button id="btn-complete-onboarding" class="btn primary full" type="button">Get Started</button>
+      <p class="onboarding-note">Review Privacy and Settings before using confidential work.</p>
     </div>
   </div>
 
