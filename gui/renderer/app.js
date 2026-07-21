@@ -3,21 +3,29 @@
 let currentConfig = {};
 let currentAutopilotSessionId = '';
 let loadingTarget = 'optimize';
+let shortcutState = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   currentConfig = await window.api.getConfig();
+  shortcutState = await window.api.getShortcutState();
 
   updateStatusDot();
   applyConfig();
+  if (currentConfig.onboardingCompleted !== true) showOnboarding();
+  document.querySelector('.content').scrollTop = 0;
 
   document.getElementById('btn-minimize').addEventListener('click', () => window.api.minimize());
   document.getElementById('btn-close').addEventListener('click', () => window.api.close());
+  document.getElementById('btn-toggle-optimizer').addEventListener('click', handleToggleOptimizer);
+  document.getElementById('btn-show-onboarding').addEventListener('click', showOnboarding);
+  document.getElementById('btn-complete-onboarding').addEventListener('click', completeOnboarding);
 
   document.getElementById('btn-optimize').addEventListener('click', handleOptimize);
   document.getElementById('btn-suggest').addEventListener('click', handleGenerateSuggestions);
   document.getElementById('btn-paste').addEventListener('click', handlePasteFromClipboard);
   document.getElementById('btn-preview-context').addEventListener('click', handlePreviewContext);
   document.getElementById('btn-copy').addEventListener('click', handleCopyResult);
+  document.getElementById('input-prompt').addEventListener('input', updatePromptCharacterCount);
 
   document.getElementById('btn-goto-settings').addEventListener('click', () => switchView('view-settings'));
   document.getElementById('btn-goto-ide').addEventListener('click', () => switchView('view-ide'));
@@ -67,26 +75,71 @@ document.addEventListener('keydown', (event) => {
 function switchView(viewId) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById(viewId).classList.add('active');
+  document.querySelector('.content').scrollTop = 0;
+}
+
+function updatePromptCharacterCount() {
+  const input = document.getElementById('input-prompt');
+  const counter = document.getElementById('prompt-character-count');
+  if (input && counter) counter.textContent = `${formatNumber(input.value.length)} characters`;
+}
+
+function showOnboarding() {
+  document.getElementById('onboarding-launch-startup').checked = currentConfig.launchAtStartup !== false;
+  document.getElementById('onboarding').classList.remove('hidden');
+}
+
+async function completeOnboarding() {
+  const launchAtStartup = document.getElementById('onboarding-launch-startup').checked;
+  currentConfig = await window.api.saveConfig({ onboardingCompleted: true, launchAtStartup });
+  document.getElementById('check-launch-startup').checked = launchAtStartup;
+  document.getElementById('onboarding').classList.add('hidden');
+  showToast('Ready. Try Ctrl+Shift+Space in any supported prompt box.', 'success');
 }
 
 function updateStatusDot() {
   const dot = document.getElementById('status-dot');
   const text = document.getElementById('status-text');
+  const detail = document.getElementById('status-detail');
+  const toggle = document.getElementById('btn-toggle-optimizer');
+  const statusBar = toggle.closest('.status-bar');
+  dot.classList.remove('active', 'warning');
+  toggle.classList.remove('start-optimizer', 'stop-optimizer');
+  statusBar?.classList.remove('optimizer-running', 'optimizer-stopped');
   if (currentConfig.optimizerEnabled === false) {
-    dot.classList.remove('active');
-    text.textContent = `Optimizer paused - ${currentConfig.toggleHotkey || 'Ctrl+Alt+F10'} to resume`;
+    statusBar?.classList.add('optimizer-stopped');
+    text.textContent = '● Optimizer OFF';
+    detail.textContent = 'Paused — Ctrl+Alt+Space will wake and run it';
+    toggle.classList.add('start-optimizer');
+    toggle.textContent = '▶ Start Optimizer';
+    toggle.title = 'Turn on Prompt Optimizer and enable its commands';
     return;
   }
-  if (currentConfig.apiKey || currentConfig.apiKeyProtected) {
-    dot.classList.add('active');
-    text.textContent = 'API key active';
-  } else {
-    dot.classList.remove('active');
-    text.textContent = 'No API key saved';
-  }
+  const actionShortcutsReady = shortcutState?.registered?.optimize && shortcutState?.registered?.context;
+  statusBar?.classList.add('optimizer-running');
+  dot.classList.add(actionShortcutsReady === false ? 'warning' : 'active');
+  text.textContent = actionShortcutsReady === false ? '● Optimizer ON — shortcut conflict' : '● Optimizer ON';
+  const keyStatus = currentConfig.apiKey || currentConfig.apiKeyProtected ? 'API ready' : 'API key required';
+  detail.textContent = actionShortcutsReady === false
+    ? 'One or more shortcuts are used by another app'
+    : `${keyStatus} • running in the system tray`;
+  toggle.classList.add('stop-optimizer');
+  toggle.textContent = '■ Stop Optimizer';
+  toggle.title = 'Turn off Prompt Optimizer and disable its commands';
+}
+
+async function handleToggleOptimizer() {
+  shortcutState = await window.api.setOptimizerEnabled(currentConfig.optimizerEnabled === false);
+  applyOptimizerState(shortcutState);
 }
 
 function applyConfig() {
+  const apiKeyInput = document.getElementById('input-apikey');
+  const apiKeyState = document.getElementById('api-key-state');
+  const hasSavedApiKey = Boolean(currentConfig.apiKey || currentConfig.apiKeyProtected);
+  apiKeyInput.placeholder = hasSavedApiKey ? 'Saved securely — enter only to replace' : 'Required: enter a Groq key beginning with gsk_';
+  apiKeyState.textContent = hasSavedApiKey ? '✓ API key saved securely on this computer' : '⚠ No API key saved';
+  apiKeyState.className = `api-key-state ${hasSavedApiKey ? 'saved' : 'missing'}`;
   document.getElementById('select-mode').value = currentConfig.mode || 'general';
   document.getElementById('select-purpose').value = currentConfig.promptPurpose || 'auto';
   document.getElementById('select-style').value = currentConfig.refinementStyle || 'pro';
@@ -102,6 +155,7 @@ function applyConfig() {
   document.getElementById('input-project-root').value = currentConfig.projectRoot || '';
   document.getElementById('select-project-policy').value = currentConfig.projectContextPolicy || 'auto';
   document.getElementById('check-optimizer-enabled').checked = currentConfig.optimizerEnabled !== false;
+  document.getElementById('check-launch-startup').checked = currentConfig.launchAtStartup !== false;
   document.getElementById('check-autocopy').checked = currentConfig.autoCopy !== false;
   document.getElementById('check-memory-rag').checked = currentConfig.memoryRagEnabled !== false;
   document.getElementById('check-cross-workspace-memory').checked = currentConfig.crossWorkspaceMemoryEnabled === true;
@@ -125,6 +179,7 @@ function applyConfig() {
 }
 
 function applyOptimizerState(state) {
+  shortcutState = state;
   currentConfig.optimizerEnabled = state.enabled;
   if (state.hotkeys?.toggle) currentConfig.toggleHotkey = state.hotkeys.toggle;
   const checkbox = document.getElementById('check-optimizer-enabled');
@@ -380,6 +435,7 @@ async function handlePasteFromClipboard() {
   const text = await window.api.getClipboard();
   if (text) {
     document.getElementById('input-prompt').value = text;
+    updatePromptCharacterCount();
     showToast('Pasted from clipboard.', 'info');
   } else {
     showToast('Clipboard is empty.', 'warning');
@@ -414,15 +470,27 @@ function updateQualityThresholdLabel() {
 
 async function refreshProductInsights() {
   const el = document.getElementById('product-metrics');
-  if (!el || !window.api.getProductInsights) return;
+  const optimizationMetric = document.getElementById('main-metric-optimizations');
+  const acceptanceMetric = document.getElementById('main-metric-acceptance');
+  const timeMetric = document.getElementById('main-metric-time');
+  if (!window.api.getProductInsights) return;
   if (currentConfig.localUsageMetricsEnabled === false) {
-    el.textContent = 'Local usage counters are disabled.';
+    if (el) el.textContent = 'Local usage counters are disabled.';
+    if (optimizationMetric) optimizationMetric.textContent = '—';
+    if (acceptanceMetric) acceptanceMetric.textContent = '—';
+    if (timeMetric) timeMetric.textContent = '—';
     return;
   }
   const insights = await window.api.getProductInsights();
   const metrics = insights.metrics || {};
   const estimatedMinutesSaved = (Number(metrics.totalOptimizations) || 0) * 3;
-  el.textContent = `Optimizations: ${formatNumber(metrics.totalOptimizations)} | Autopilot sessions: ${formatNumber(metrics.autopilotSessions)}\nAccepted suggestions: ${formatNumber(metrics.suggestionsAccepted)} | IDE handoffs: ${formatNumber(metrics.ideHandoffs)}\nActive days (30d): ${formatNumber(metrics.activeDays30)} | Estimated time saved: ${formatNumber(estimatedMinutesSaved)} min`;
+  const acceptanceRate = Math.round((Number(metrics.suggestionAcceptanceRate) || 0) * 100);
+  if (el) el.textContent = `Optimizations: ${formatNumber(metrics.totalOptimizations)} | Autopilot sessions: ${formatNumber(metrics.autopilotSessions)}\nAccepted suggestions: ${formatNumber(metrics.suggestionsAccepted)} (${acceptanceRate}%) | IDE handoffs: ${formatNumber(metrics.ideHandoffs)}\nActive days (30d): ${formatNumber(metrics.activeDays30)} | Estimated time saved: ${formatNumber(estimatedMinutesSaved)} min`;
+  if (optimizationMetric) optimizationMetric.textContent = formatNumber(metrics.totalOptimizations);
+  if (acceptanceMetric) acceptanceMetric.textContent = `${acceptanceRate}%`;
+  if (timeMetric) timeMetric.textContent = estimatedMinutesSaved >= 60
+    ? `${(estimatedMinutesSaved / 60).toFixed(1)}h`
+    : `${estimatedMinutesSaved}m`;
 }
 
 async function refreshMemoryStats() {
@@ -509,6 +577,7 @@ function showResult(text) {
 function replacePromptInput(text) {
   const input = document.getElementById('input-prompt');
   input.value = text;
+  updatePromptCharacterCount();
   input.focus();
   input.select();
 }
@@ -545,6 +614,7 @@ async function handleSaveSettings() {
   const autoCopy = document.getElementById('check-autocopy').checked;
   const autoSendToIDE = document.getElementById('check-auto-send-ide').checked;
   const localUsageMetricsEnabled = document.getElementById('check-local-metrics').checked;
+  const launchAtStartup = document.getElementById('check-launch-startup').checked;
   const memoryRagEnabled = document.getElementById('check-memory-rag').checked;
   const crossWorkspaceMemoryEnabled = document.getElementById('check-cross-workspace-memory').checked;
   const autoLearnFromContext = document.getElementById('check-auto-learn').checked;
@@ -565,6 +635,7 @@ async function handleSaveSettings() {
     autoCopy,
     autoSendToIDE,
     localUsageMetricsEnabled,
+    launchAtStartup,
     memoryRagEnabled,
     crossWorkspaceMemoryEnabled,
     autoLearnFromContext,
@@ -599,7 +670,7 @@ async function handleSaveSettings() {
   currentConfig = await window.api.saveConfig(updates);
   updateStatusDot();
   applyConfig();
-  showSettingsStatus('Settings saved!', 'success');
+  showSettingsStatus(apiKey ? 'API key verified and saved securely.' : 'Settings saved. Existing API key kept.', 'success');
   document.getElementById('input-apikey').value = '';
 }
 

@@ -9,6 +9,7 @@ const CONFIG_DIR = process.env.PROMPT_OPTIMIZER_CONFIG_DIR
   ? path.resolve(process.env.PROMPT_OPTIMIZER_CONFIG_DIR)
   : path.join(os.homedir(), '.prompt-optimizer');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
+let cachedApiKey = '';
 
 const DEFAULT_PRODUCT_METRICS = {
   schemaVersion: 1,
@@ -40,6 +41,8 @@ const DEFAULT_CONFIG = {
   refinementStyle: 'pro', // 'fast' | 'pro' | 'architect'
   promptPurpose: 'auto', // 'auto' | 'feature' | 'debug' | 'refactor' | 'test' | 'review' | 'explain'
   optimizerEnabled: true,
+  launchAtStartup: true,
+  onboardingCompleted: false,
   hotkey: 'Ctrl+Shift+Space',
   contextHotkey: 'Ctrl+Alt+Space',
   toggleHotkey: 'Ctrl+Alt+F10',
@@ -98,6 +101,7 @@ function normalizeConfig(config) {
     promptSuggestionCount: Math.round(clampNumber(config.promptSuggestionCount, 3, 2, 4)),
     promptAutopilotQualityThreshold: clampNumber(config.promptAutopilotQualityThreshold, 0.78, 0.6, 0.95),
     projectContextPolicy: config.projectContextPolicy === 'pinned' ? 'pinned' : 'auto',
+    launchAtStartup: config.launchAtStartup !== false,
     crossWorkspaceMemoryEnabled: config.crossWorkspaceMemoryEnabled === true,
     crossWorkspaceHistoryEnabled: config.crossWorkspaceHistoryEnabled === true,
     workspaceProjectBindings: config.workspaceProjectBindings && typeof config.workspaceProjectBindings === 'object' && !Array.isArray(config.workspaceProjectBindings)
@@ -132,7 +136,7 @@ function runEncodedPowerShell(script, input) {
       input,
       encoding: 'utf-8',
       windowsHide: true,
-      timeout: 5000,
+      timeout: 15000,
       maxBuffer: 1024 * 1024
     }
   );
@@ -206,6 +210,7 @@ function saveConfig(updates) {
   const current = loadConfig();
   const normalizedUpdates = { ...updates };
   if (Object.prototype.hasOwnProperty.call(normalizedUpdates, 'apiKey') && normalizedUpdates.apiKey) {
+    cachedApiKey = String(normalizedUpdates.apiKey);
     const protectedKey = protectSecret(normalizedUpdates.apiKey);
     if (protectedKey) {
       normalizedUpdates.apiKeyProtected = protectedKey;
@@ -318,9 +323,11 @@ function appendPromptHistory(entry) {
 }
 
 function getApiKey() {
+  if (cachedApiKey) return cachedApiKey;
   const config = loadConfig();
   const protectedKey = unprotectSecret(config.apiKeyProtected);
-  return protectedKey || config.apiKey;
+  cachedApiKey = protectedKey || config.apiKey || '';
+  return cachedApiKey;
 }
 
 function setApiKey(key) {
